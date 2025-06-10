@@ -1,0 +1,21 @@
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      target: release # Tells Docker to build the final 'release' stage
+    container_name: sarvasync-api-prod
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env # For a real deployment, you'd manage secrets differently
+    environment:
+      - NODE_ENV=production # Overrides the value from .env file
+    depends_on:
+      - postgres
+    networks:
+      - bun-network
+    # No volumes for source code needed, it's all inside the image
