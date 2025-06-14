@@ -3,97 +3,96 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
+import { prisma } from './db/client'; // <-- CHANGE to this
+import passport from 'passport';
+import { configurePassport } from './config/passport';
+
 import { PrismaClient } from '@prisma/client';
 
-// Import routes
-import userRoutes from './routes/users';
-import postRoutes from './routes/posts';
-import categoryRoutes from './routes/categories';
+import authRoutes from './routes/auth';
 
-// Load environment variables
 dotenv.config();
 
-// Initialize Prisma Client
-export const prisma = new PrismaClient();
-
-// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
+console.log("RESTARTED")
+app.use(helmet());
 
-// Middleware
-app.use(helmet()); // Security headers
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true
-}));
-app.use(morgan('combined')); // Logging
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN,
+    credentials: true, 
+  })
+);
+
+app.use(morgan('combined'));
+
 app.use(express.json({ limit: '10mb' }));
+
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
+app.use(cookieParser());
+
+app.use(passport.initialize());
+configurePassport(passport); 
+
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
   });
 });
 
-// API Routes
-app.use('/api/users', userRoutes);
-app.use('/api/posts', postRoutes);
-app.use('/api/categories', categoryRoutes);
+app.use('/auth', authRoutes);
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'Welcome to Bun Express REST API',
+    message: 'Welcome to the Sarvasync REST API',
     version: '1.0.0',
     endpoints: {
       health: '/health',
-      users: '/api/users',
-      posts: '/api/posts',
-      categories: '/api/categories'
-    }
+      auth: '/auth',
+    },
   });
 });
 
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Something went wrong!',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
-  });
-});
+app.use(
+  (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err.stack); // Log the full error stack for debugging.
+    res.status(500).json({
+      error: 'Something went wrong!',
+      // Only show detailed error messages in development for security.
+      message: process.env.NODE_ENV === 'development' ? err.message : 'An internal server error occurred.',
+    });
+  }
+);
 
-// 404 handler
-app.use('', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
-    error: 'Route not found',
-    path: req.originalUrl
+    error: 'Not Found',
+    message: `The route ${req.method} ${req.originalUrl} does not exist.`,
   });
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('Shutting down gracefully...');
+const gracefulShutdown = async (signal: string) => {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
   await prisma.$disconnect();
   process.exit(0);
-});
+};
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log('--- Server is Up and Running ---');
+  console.log(`🚀 Listening on port: ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
+  console.log('---------------------------------');
 });
 
 export default app;

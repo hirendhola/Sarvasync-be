@@ -24,6 +24,17 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  }
+    "noPropertyAccessFromIndexSignature": false,
+
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "passport-magic-link": ["types/passport-magic-link"]
+    }
+  },
+
+  "include": ["src/**/*", "types/**/*"],
+
+  "exclude": ["node_modules"]
 }
