@@ -27,10 +27,8 @@ declare module "passport-magic-link" {
 
   export class Strategy extends PassportStrategy {
     name: string;
-    // This is the required method signature that was missing.
     public authenticate(req: Request, options?: any): void;
 
-    // Constructors
     constructor(
       options: MagicLinkOptions,
       sendToken: SendTokenFunction,

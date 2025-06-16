@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
-interface JwtPayload {
+export interface JwtPayload {
   userId: string;
 }
 
@@ -18,7 +18,7 @@ export const isAuthenticated = (
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     res.status(401).json({ error: "Unauthorized: No token provided." });
-    return ;
+    return;
   }
 
   const token = authHeader.split(" ")[1]!;
