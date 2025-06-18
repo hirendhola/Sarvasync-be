@@ -6,13 +6,14 @@ import { isAuthenticated } from "@/middleware/isAuthenticated";
 
 const router = express.Router();
 
-router.post("/google/initate", isAuthenticated, (req, res) => {
+router.post("/google/initiate", isAuthenticated, (req, res) => {
   try {
     // Store the userId in state
     const userId = (req.user as { userId: string }).userId;
 
     if (!userId) {
-      return res.status(401).json({ error: "User not authenticated" });
+      res.status(401).json({ error: "User not authenticated" });
+      return;
     }
 
     const state = Buffer.from(
@@ -48,6 +49,8 @@ router.get("/google", (req, res, next) => {
         "profile",
         "email",
         "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/yt-analytics.readonly",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
       ],
       accessType: "offline",
       prompt: "consent",

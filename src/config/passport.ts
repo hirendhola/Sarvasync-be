@@ -7,7 +7,6 @@ import type { Profile, VerifyCallback } from "passport-google-oauth20";
 import { prisma } from "@/db/client";
 import { AuthProvider } from "@prisma/client";
 import { encrypt } from "../utils/encryption";
-import jwt from "jsonwebtoken";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface GoogleTokenParams {
