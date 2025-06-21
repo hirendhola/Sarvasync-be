@@ -12,6 +12,8 @@ import { PrismaClient } from "@prisma/client";
 
 import authRoutes from "./routes/auth";
 import googleConnect from "@/routes/connect/google";
+import userRoutes from "@/routes/user/connectedAccounts";
+
 dotenv.config();
 
 const app = express();
@@ -48,6 +50,7 @@ app.get("/health", (req, res) => {
 
 app.use("/auth", authRoutes);
 app.use("/connect", googleConnect);
+app.use("/user", userRoutes);
 
 app.get("/", (req, res) => {
   res.json({

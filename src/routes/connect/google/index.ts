@@ -62,27 +62,60 @@ router.get("/google", (req, res, next) => {
   }
 });
 
-// This lets Passport handle saving to DB in its verify callback
 router.get(
   "/google/callback",
   passport.authenticate("google", {
-    failureRedirect: "/dashboard",
+    failureRedirect: "/connect/google/failure", // Redirect to a new failure handler
     session: false,
   }),
   (req, res) => {
     res.send(`
-
-      <script>
-  if (window.opener) {
-    window.opener.postMessage({ type: 'OAUTH_SUCCESS', payload: { provider: 'google' } }, '*');
-    window.close();
-  } else {
-    window.location.href = '${process.env.CORS_ORIGIN}/dashboard/connections?linked=google';
-  }
-</script>
-
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Authentication Success</title>
+      </head>
+      <body>
+        <script>
+          if (window.opener) {
+            // Send a success message to the main window
+            window.opener.postMessage({ type: 'OAUTH_SUCCESS', payload: { provider: 'google' } }, '${process.env.CORS_ORIGIN}');
+            
+            // Give the message a moment to send before closing
+            setTimeout(() => window.close(), 100);
+          } else {
+            // Fallback if the page wasn't opened as a popup
+            window.location.href = '${process.env.CORS_ORIGIN}/dashboard/connections?linked=google';
+          }
+        </script>
+        <p>Success! This window will close automatically.</p>
+      </body>
+      </html>
     `);
   }
 );
+
+router.get("/google/failure", (req, res) => {
+  res.status(401).send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Authentication Failed</title>
+    </head>
+    <body>
+      <script>
+        if (window.opener) {
+          window.opener.postMessage({ type: 'OAUTH_ERROR', payload: { message: 'Google authentication failed.' } }, '${process.env.CORS_ORIGIN}');
+          setTimeout(() => window.close(), 100);
+        } else {
+          window.location.href = '${process.env.CORS_ORIGIN}/dashboard/connections?error=google-auth-failed';
+        }
+      </script>
+      <p>Authentication failed. This window will close automatically.</p>
+    </body>
+    </html>
+  `);
+});
+
 
 export default router;

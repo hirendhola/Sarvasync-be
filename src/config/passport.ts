@@ -103,54 +103,69 @@ export const configurePassport = (passport: PassportStatic) => {
     )
   );
 
-  passport.use(
-    "google",
-    new GoogleStrategy(
-      {
-        clientID: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        callbackURL: `${process.env.SERVER_URL}/connect/google/callback`,
-        passReqToCallback: true,
-      },
-      async (
-        req: any,
-        accessToken: string,
-        refreshToken: string | undefined,
-        params: GoogleTokenParams,
-        profile: Profile,
-        done: VerifyCallback
-      ) => {
-        try {
-          // const loggedInUser = req.user as { userId: string };
+passport.use(
+  "google",
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      callbackURL: `${process.env.SERVER_URL}/connect/google/callback`,
+      passReqToCallback: true,
+    },
+    async (
+      req: any,
+      accessToken: string,
+      refreshToken: string | undefined,
+      params: GoogleTokenParams,
+      profile: Profile,
+      done: VerifyCallback
+    ) => {
+      try {
+        const state = req.query.state as string;
+        if (!state) {
+          return done(new Error("OAuth state parameter is missing."), false);
+        }
 
-          const state = req.query.state as string;
-          if (!state) return done(new Error("Missing state"), false);
+        const { userId } = JSON.parse(
+          Buffer.from(state, "base64").toString()
+        );
 
-          const { userId } = JSON.parse(
-            Buffer.from(state, "base64").toString()
+        if (!userId) {
+          return done(
+            new Error("No user ID found in state. Cannot link account."),
+            false
           );
+        }
 
-          if (!userId) {
-            return done(
-              new Error("No user is logged in to link the account."),
-              false
-            );
-          }
-
-          await prisma.linkedAccount.upsert({
+        await prisma.$transaction(async (tx) => {
+          const existingAccount = await tx.linkedAccount.findUnique({
             where: {
               userId_provider: {
                 userId: userId as string,
                 provider: AuthProvider.GOOGLE,
               },
             },
-            update: {
+            select: { id: true },
+          });
+
+          await tx.linkedAccount.upsert({
+            where: {
+              userId_provider: {
+                userId: userId as string,
+                provider: AuthProvider.GOOGLE,
+              },
+            },
+            update: { 
               accessToken: encrypt(accessToken),
               refreshToken: refreshToken ? encrypt(refreshToken) : null,
               expiresAt: params.expires_in,
               scope: params.scope,
+              displayName: profile.displayName,
+              profileUrl: profile.photos?.[0]?.value,
+              isActive: true,
+              lastSync: new Date(),
             },
-            create: {
+            create: { 
               userId: userId as string,
               provider: AuthProvider.GOOGLE,
               providerUserId: profile.id,
@@ -158,14 +173,31 @@ export const configurePassport = (passport: PassportStatic) => {
               refreshToken: refreshToken ? encrypt(refreshToken) : null,
               expiresAt: params.expires_in,
               scope: params.scope,
+              displayName: profile.displayName,
+              profileUrl: profile.photos?.[0]?.value,
             },
           });
 
-          const primaryUser = await prisma.user.findUnique({
+          if (!existingAccount) {
+            await tx.user.update({
+              where: {
+                id: userId as string,
+              },
+              data: {
+                connectedPlatforms: {
+                  increment: 1,
+                },
+              },
+            });
+          }
+
+          const primaryUser = await tx.user.findUnique({
             where: { id: userId as string },
+            select: { name: true, avatarUrl: true },
           });
+          
           if (primaryUser && (!primaryUser.name || !primaryUser.avatarUrl)) {
-            await prisma.user.update({
+            await tx.user.update({
               where: { id: userId as string },
               data: {
                 name: primaryUser.name ?? profile.displayName,
@@ -173,12 +205,14 @@ export const configurePassport = (passport: PassportStatic) => {
               },
             });
           }
+        });
 
-          return done(null, userId as string);
-        } catch (error) {
-          return done(error, false);
-        }
+        return done(null, userId as string);
+        
+      } catch (error) {
+        return done(error, false);
       }
-    )
-  );
+    }
+  )
+);
 };
