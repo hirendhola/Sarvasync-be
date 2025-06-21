@@ -11,6 +11,67 @@ enum AuthProvider {
   GOOGLE
   FACEBOOK
   TWITTER
+  LINKEDIN
+  INSTAGRAM
+  TIKTOK
+  YOUTUBE
+  REDDIT
+  MEDIUM
+  DEVTO
+  PINTEREST
+  DISCORD
+  TELEGRAM
+}
+
+enum PlatformType {
+  YOUTUBE
+  TWITTER
+  LINKEDIN
+  INSTAGRAM
+  TIKTOK
+  FACEBOOK
+  REDDIT
+  MEDIUM
+  DEVTO
+  PINTEREST
+  DISCORD
+  TELEGRAM
+}
+
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  CAROUSEL
+  STORY
+  REEL
+  SHORT
+  ARTICLE
+  POLL
+  THREAD
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum ContentStatus {
+  DRAFT
+  PROCESSING
+  OPTIMIZED
+  READY
+  ARCHIVED
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  ENTERPRISE
 }
 
 model User {
@@ -18,12 +79,25 @@ model User {
   email     String  @unique
   name      String?
   avatarUrl String?
+  timezone  String? @default("UTC")
+
+  subscriptionPlan   SubscriptionPlan @default(STARTER)
+  subscriptionStatus String?          @default("active")
+  subscriptionEndsAt DateTime?
+
+  postsThisMonth     Int @default(0)
+  connectedPlatforms Int @default(0)
 
   refreshTokens  RefreshToken[]
   linkedAccounts LinkedAccount[]
+  contents       Content[]
+  posts          Post[]
+  analytics      Analytics[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("users")
 }
 
 model RefreshToken {
@@ -34,6 +108,8 @@ model RefreshToken {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
 }
 
 model LinkedAccount {
@@ -44,14 +120,254 @@ model LinkedAccount {
 
   provider       AuthProvider
   providerUserId String
+  username       String?
+  displayName    String?
+  profileUrl     String?
+  followerCount  Int?
 
   accessToken  String
   refreshToken String?
   expiresAt    Int?
   scope        String?
 
+  platformData Json?
+
+  isActive Boolean   @default(true)
+  lastSync DateTime?
+
+  posts     Post[]
+  analytics Analytics[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, provider])
+  @@map("linked_accounts")
+}
+
+model Content {
+  id          String        @id @default(cuid())
+  title       String?
+  description String?
+  status      ContentStatus @default(DRAFT)
+
+  originalText String?
+
+  mediaUrls    String[]
+  thumbnailUrl String?
+
+  variations ContentVariation[]
+  User       User?              @relation(fields: [userId], references: [id])
+  userId     String?
+  Post       Post[]
+
+  @@map("contents")
+}
+
+model ContentVariation {
+  id String @id @default(cuid())
+
+  contentId String
+  content   Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  platform PlatformType
+  postType PostType
+
+  text      String?
+  hashtags  String[]
+  mentions  String[]
+  mediaUrls String[]
+
+  platformData Json? 
+
+  aiScore          Float?
+  optimizationTips String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contentId, platform, postType])
+  @@map("content_variations")
+}
+
+model Post {
+  id       String     @id @default(cuid())
+  status   PostStatus @default(DRAFT)
+  postType PostType
+
+  text      String?
+  mediaUrls String[]
+  hashtags  String[]
+  mentions  String[]
+
+  platformData Json?
+
+  scheduledFor DateTime?
+  publishedAt  DateTime?
+
+  platformPostId String? 
+  platformUrl    String? 
+
+  errorMessage String?
+  retryCount   Int     @default(0)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  contentId String?
+  content   Content? @relation(fields: [contentId], references: [id], onDelete: SetNull)
+
+  linkedAccountId String
+  linkedAccount   LinkedAccount @relation(fields: [linkedAccountId], references: [id], onDelete: Cascade)
+
+  analytics PostAnalytics[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("posts")
+}
+
+model Analytics {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  linkedAccountId String
+  linkedAccount   LinkedAccount @relation(fields: [linkedAccountId], references: [id], onDelete: Cascade)
+
+  date        DateTime
+  period      String   @default("daily")
+  followers   Int      @default(0)
+  following   Int      @default(0)
+  posts       Int      @default(0)
+  likes       Int      @default(0)
+  shares      Int      @default(0)
+  comments    Int      @default(0)
+  views       Int      @default(0)
+  impressions Int      @default(0)
+  engagements Int      @default(0)
+  clicks      Int      @default(0)
+
+  engagementRate Float?
+  reachRate      Float?
+  clickRate      Float?
+
+  rawData Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, linkedAccountId, date, period])
+  @@map("analytics")
+}
+
+model PostAnalytics {
+  id String @id @default(cuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  likes       Int @default(0)
+  shares      Int @default(0)
+  comments    Int @default(0)
+  views       Int @default(0)
+  impressions Int @default(0)
+  clicks      Int @default(0)
+  saves       Int @default(0)
+
+  recordedAt DateTime @default(now())
+
+  platformData Json?
+
+  @@map("post_analytics")
+}
+
+model AIOptimization {
+  id String @id @default(cuid())
+
+  contentId String
+  platform  PlatformType
+
+  sentimentScore   Float?
+  readabilityScore Float?
+  engagementScore  Float?
+
+  suggestions        String[]
+  hashtagSuggestions String[]
+  bestPostTime       DateTime?
+
+  testVariants Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contentId, platform])
+  @@map("ai_optimizations")
+}
+
+model ScheduledPost {
+  id String @id @default(cuid())
+
+  postId       String   @unique
+  scheduledFor DateTime
+  timezone     String   @default("UTC")
+
+  isRecurring   Boolean @default(false)
+  recurringRule String? // Cron-like rule
+
+  isActive Boolean   @default(true)
+  lastRun  DateTime?
+  nextRun  DateTime?
+  runCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("scheduled_posts")
+}
+
+model ContentTemplate {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+
+  templateData Json
+  platforms    PlatformType[]
+  postTypes    PostType[]
+
+  usageCount Int @default(0)
+
+  isPublic Boolean @default(false)
+
+  userId String?
+  teamId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("content_templates")
+}
+
+model PlatformQuota {
+  id String @id @default(cuid())
+
+  userId   String
+  platform PlatformType
+
+  dailyLimit   Int
+  monthlyLimit Int
+
+  dailyUsage   Int @default(0)
+  monthlyUsage Int @default(0)
+
+  lastDailyReset   DateTime @default(now())
+  lastMonthlyReset DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, platform])
+  @@map("platform_quotas")
 }
