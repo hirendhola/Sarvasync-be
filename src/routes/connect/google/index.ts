@@ -65,7 +65,7 @@ router.get("/google", (req, res, next) => {
 router.get(
   "/google/callback",
   passport.authenticate("google", {
-    failureRedirect: "/connect/google/failure", 
+    failureRedirect: "/connect/google/failure",
     session: false,
   }),
   (req, res) => {
@@ -78,17 +78,12 @@ router.get(
       <body>
         <script>
           if (window.opener) {
-            // Send a success message to the main window
-            window.opener.postMessage({ type: 'OAUTH_SUCCESS', payload: { provider: 'google' } }, '${process.env.CORS_ORIGIN}');
-            
-            // Give the message a moment to send before closing
-            setTimeout(() => window.close(), 100);
+            window.opener.postMessage({ type: 'OAUTH_SUCCESS', payload: { provider: 'google' } }, '${process.env.CORS_ORIGIN}');            
           } else {
-            // Fallback if the page wasn't opened as a popup
             window.location.href = '${process.env.CORS_ORIGIN}/dashboard/connections?linked=google';
           }
         </script>
-        <p>Success! This window will close automatically.</p>
+        <p>Success! Please close this window.</p>
       </body>
       </html>
     `);
@@ -116,6 +111,5 @@ router.get("/google/failure", (req, res) => {
     </html>
   `);
 });
-
 
 export default router;

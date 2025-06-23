@@ -51,13 +51,14 @@ router.get(
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+        sameSite: "strict",
         path: "/auth/refresh",
         maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
       });
 
-      res.redirect(`${process.env.CORS_ORIGIN}/auth/magiclink/callback?token=${accessToken}`);
-
+      res.redirect(
+        `${process.env.CORS_ORIGIN}/auth/magiclink/callback?token=${accessToken}`
+      );
     } catch (error) {
       next(error);
     }
@@ -142,17 +143,13 @@ router.post(
   }
 );
 
-router.get(
-  "/profile",
-  isAuthenticated,
-  (req: Request, res: Response) => {
-    const authenticatedUser = (req as AuthenticatedRequest).user;
+router.get("/profile", isAuthenticated, (req: Request, res: Response) => {
+  const authenticatedUser = (req as AuthenticatedRequest).user;
 
-    res.json({
-      message: "This is a protected route. You are authenticated.",
-      user: authenticatedUser,
-    });
-  }
-);
+  res.json({
+    message: "This is a protected route. You are authenticated.",
+    user: authenticatedUser,
+  });
+});
 
 export default router;
