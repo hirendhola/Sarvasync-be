@@ -7,6 +7,7 @@ import type { Profile, VerifyCallback } from "passport-google-oauth20";
 import { prisma } from "@/db/client";
 import { AuthProvider } from "@prisma/client";
 import { encrypt } from "../utils/encryption";
+import { google } from "googleapis";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface GoogleTokenParams {
@@ -103,116 +104,157 @@ export const configurePassport = (passport: PassportStatic) => {
     )
   );
 
-passport.use(
-  "google",
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: `${process.env.SERVER_URL}/connect/google/callback`,
-      passReqToCallback: true,
-    },
-    async (
-      req: any,
-      accessToken: string,
-      refreshToken: string | undefined,
-      params: GoogleTokenParams,
-      profile: Profile,
-      done: VerifyCallback
-    ) => {
-      try {
-        const state = req.query.state as string;
-        if (!state) {
-          return done(new Error("OAuth state parameter is missing."), false);
-        }
+  passport.use(
+    "google",
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        callbackURL: `${process.env.SERVER_URL}/connect/google/callback`,
+        passReqToCallback: true,
+      },
+      async (
+        req: any,
+        accessToken: string,
+        refreshToken: string | undefined,
+        params: GoogleTokenParams,
+        profile: Profile,
+        done: VerifyCallback
+      ) => {
+        try {
+          const state = req.query.state as string;
+          if (!state) {
+            return done(new Error("OAuth state parameter is missing."), false);
+          }
 
-        const { userId } = JSON.parse(
-          Buffer.from(state, "base64").toString()
-        );
-
-        if (!userId) {
-          return done(
-            new Error("No user ID found in state. Cannot link account."),
-            false
+          const { userId } = JSON.parse(
+            Buffer.from(state, "base64").toString()
           );
-        }
 
-        await prisma.$transaction(async (tx) => {
-          const existingAccount = await tx.linkedAccount.findUnique({
-            where: {
-              userId_provider: {
-                userId: userId as string,
-                provider: AuthProvider.GOOGLE,
-              },
-            },
-            select: { id: true },
-          });
+          if (!userId) {
+            return done(
+              new Error("No user ID found in state. Cannot link account."),
+              false
+            );
+          }
 
-          await tx.linkedAccount.upsert({
-            where: {
-              userId_provider: {
-                userId: userId as string,
-                provider: AuthProvider.GOOGLE,
-              },
-            },
-            update: { 
-              accessToken: encrypt(accessToken),
-              refreshToken: refreshToken ? encrypt(refreshToken) : null,
-              expiresAt: params.expires_in,
-              scope: params.scope,
-              displayName: profile.displayName,
-              profileUrl: profile.photos?.[0]?.value,
-              isActive: true,
-              lastSync: new Date(),
-            },
-            create: { 
-              userId: userId as string,
-              provider: AuthProvider.GOOGLE,
-              providerUserId: profile.id,
-              accessToken: encrypt(accessToken),
-              refreshToken: refreshToken ? encrypt(refreshToken) : null,
-              expiresAt: params.expires_in,
-              scope: params.scope,
-              displayName: profile.displayName,
-              profileUrl: profile.photos?.[0]?.value,
-            },
-          });
+          await prisma.$transaction(async (tx) => {
+            let username: string | null = null;
+            let followerCount: number | null = null;
+            let platformData: any | null = null;
 
-          if (!existingAccount) {
-            await tx.user.update({
+            try {
+              const oauth2Client = new google.auth.OAuth2();
+              oauth2Client.setCredentials({ access_token: accessToken });
+
+              const youtube = google.youtube({
+                version: "v3",
+                auth: oauth2Client,
+              });
+
+              console.log(
+                "📡 Fetching YouTube channel snippet and statistics..."
+              );
+              const response = await youtube.channels.list({
+                part: ["snippet", "statistics"],
+                mine: true,
+              });
+
+              const channel = response.data.items?.[0];
+              if (channel) {
+                console.log(
+                  "✅ YouTube channel data found. Extracting details."
+                );
+                username = channel.snippet?.customUrl || null;
+                followerCount = channel.statistics?.subscriberCount
+                  ? parseInt(channel.statistics.subscriberCount, 10)
+                  : null;
+
+                platformData = channel;
+              } else {
+                console.log(
+                  "ℹ️ No YouTube channel found for this Google account."
+                );
+              }
+            } catch (apiError) {
+              console.error("❌ Error fetching YouTube data:", apiError);
+            }
+
+            const existingAccount = await tx.linkedAccount.findUnique({
               where: {
-                id: userId as string,
-              },
-              data: {
-                connectedPlatforms: {
-                  increment: 1,
+                userId_provider: {
+                  userId: userId as string,
+                  provider: AuthProvider.GOOGLE,
                 },
               },
+              select: { id: true },
             });
-          }
 
-          const primaryUser = await tx.user.findUnique({
-            where: { id: userId as string },
-            select: { name: true, avatarUrl: true },
-          });
-          
-          if (primaryUser && (!primaryUser.name || !primaryUser.avatarUrl)) {
-            await tx.user.update({
-              where: { id: userId as string },
-              data: {
-                name: primaryUser.name ?? profile.displayName,
-                avatarUrl: primaryUser.avatarUrl ?? profile.photos?.[0]?.value,
+            await tx.linkedAccount.upsert({
+              where: {
+                userId_provider: {
+                  userId: userId as string,
+                  provider: AuthProvider.GOOGLE,
+                },
+              },
+              update: {
+                accessToken: encrypt(accessToken),
+                refreshToken: refreshToken ? encrypt(refreshToken) : null,
+                expiresAt: params.expires_in,
+                scope: params.scope,
+                displayName: profile.displayName,
+                profileUrl: profile.photos?.[0]?.value,
+                username: username,
+                followerCount: followerCount,
+                platformData: platformData,
+                isActive: true,
+                lastSync: new Date(),
+              },
+              create: {
+                userId: userId as string,
+                provider: AuthProvider.GOOGLE,
+                providerUserId: profile.id,
+                accessToken: encrypt(accessToken),
+                refreshToken: refreshToken ? encrypt(refreshToken) : null,
+                expiresAt: params.expires_in,
+                scope: params.scope,
+                displayName: profile.displayName,
+                profileUrl: profile.photos?.[0]?.value,
+                username: username,
+                followerCount: followerCount,
+                platformData: platformData,
               },
             });
-          }
-        });
 
-        return done(null, userId as string);
-        
-      } catch (error) {
-        return done(error, false);
+            if (!existingAccount) {
+              await tx.user.update({
+                where: { id: userId as string },
+                data: { connectedPlatforms: { increment: 1 } },
+              });
+            }
+
+            const primaryUser = await tx.user.findUnique({
+              where: { id: userId as string },
+              select: { name: true, avatarUrl: true },
+            });
+
+            if (primaryUser && (!primaryUser.name || !primaryUser.avatarUrl)) {
+              await tx.user.update({
+                where: { id: userId as string },
+                data: {
+                  name: primaryUser.name ?? profile.displayName,
+                  avatarUrl:
+                    primaryUser.avatarUrl ?? profile.photos?.[0]?.value,
+                },
+              });
+            }
+          });
+
+          return done(null, userId as string);
+        } catch (error) {
+          return done(error, false);
+        }
       }
-    }
-  )
-);
+    )
+  );
 };

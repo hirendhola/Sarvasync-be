@@ -24,6 +24,8 @@ router.get(
       select: {
         linkedAccounts: {
           select: {
+            username: true,
+            followerCount: true,
             provider: true,
           },
         },
