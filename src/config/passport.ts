@@ -9,6 +9,7 @@ import { AuthProvider } from "@prisma/client";
 import { encrypt } from "../utils/encryption";
 import { google } from "googleapis";
 const resend = new Resend(process.env.RESEND_API_KEY);
+import type { JsonObject } from "@prisma/client/runtime/library";
 
 interface GoogleTokenParams {
   access_token: string;
@@ -122,6 +123,7 @@ export const configurePassport = (passport: PassportStatic) => {
         done: VerifyCallback
       ) => {
         try {
+          // Step 1: Identify the logged-in user from the state parameter.
           const state = req.query.state as string;
           if (!state) {
             return done(new Error("OAuth state parameter is missing."), false);
@@ -130,7 +132,6 @@ export const configurePassport = (passport: PassportStatic) => {
           const { userId } = JSON.parse(
             Buffer.from(state, "base64").toString()
           );
-
           if (!userId) {
             return done(
               new Error("No user ID found in state. Cannot link account."),
@@ -138,48 +139,29 @@ export const configurePassport = (passport: PassportStatic) => {
             );
           }
 
+          const oauth2Client = new google.auth.OAuth2();
+          oauth2Client.setCredentials({ access_token: accessToken });
+          const youtube = google.youtube({ version: "v3", auth: oauth2Client });
+
+          console.log("📡 Fetching YouTube channel ID and statistics...");
+          const channelResponse = await youtube.channels.list({
+            part: ["id", "snippet", "statistics"],
+            mine: true,
+          });
+
+          const channel = channelResponse.data.items?.[0];
+          if (!channel || !channel.id) {
+            return done(
+              new Error(
+                "The connected Google account does not have an associated YouTube channel."
+              ),
+              false
+            );
+          }
+
+          const youtubeChannelId = channel.id;
+
           await prisma.$transaction(async (tx) => {
-            let username: string | null = null;
-            let followerCount: number | null = null;
-            let platformData: any | null = null;
-
-            try {
-              const oauth2Client = new google.auth.OAuth2();
-              oauth2Client.setCredentials({ access_token: accessToken });
-
-              const youtube = google.youtube({
-                version: "v3",
-                auth: oauth2Client,
-              });
-
-              console.log(
-                "📡 Fetching YouTube channel snippet and statistics..."
-              );
-              const response = await youtube.channels.list({
-                part: ["snippet", "statistics"],
-                mine: true,
-              });
-
-              const channel = response.data.items?.[0];
-              if (channel) {
-                console.log(
-                  "✅ YouTube channel data found. Extracting details."
-                );
-                username = channel.snippet?.customUrl || null;
-                followerCount = channel.statistics?.subscriberCount
-                  ? parseInt(channel.statistics.subscriberCount, 10)
-                  : null;
-
-                platformData = channel;
-              } else {
-                console.log(
-                  "ℹ️ No YouTube channel found for this Google account."
-                );
-              }
-            } catch (apiError) {
-              console.error("❌ Error fetching YouTube data:", apiError);
-            }
-
             const existingAccount = await tx.linkedAccount.findUnique({
               where: {
                 userId_provider: {
@@ -189,6 +171,13 @@ export const configurePassport = (passport: PassportStatic) => {
               },
               select: { id: true },
             });
+
+            const displayName = channel.snippet?.title;
+            const profileUrl = channel.snippet?.thumbnails?.default?.url;
+            const username = channel.snippet?.customUrl || null;
+            const followerCount = channel.statistics?.subscriberCount
+              ? parseInt(channel.statistics.subscriberCount, 10)
+              : null;
 
             await tx.linkedAccount.upsert({
               where: {
@@ -202,30 +191,31 @@ export const configurePassport = (passport: PassportStatic) => {
                 refreshToken: refreshToken ? encrypt(refreshToken) : null,
                 expiresAt: params.expires_in,
                 scope: params.scope,
-                displayName: profile.displayName,
-                profileUrl: profile.photos?.[0]?.value,
+                displayName: displayName,
+                profileUrl: profileUrl,
                 username: username,
                 followerCount: followerCount,
-                platformData: platformData,
+                platformData: channel as unknown as JsonObject,
                 isActive: true,
                 lastSync: new Date(),
               },
               create: {
                 userId: userId as string,
                 provider: AuthProvider.GOOGLE,
-                providerUserId: profile.id,
+                providerUserId: youtubeChannelId,
                 accessToken: encrypt(accessToken),
                 refreshToken: refreshToken ? encrypt(refreshToken) : null,
                 expiresAt: params.expires_in,
                 scope: params.scope,
-                displayName: profile.displayName,
-                profileUrl: profile.photos?.[0]?.value,
+                displayName: displayName,
+                profileUrl: profileUrl,
                 username: username,
                 followerCount: followerCount,
-                platformData: platformData,
+                platformData: channel as unknown as JsonObject,
               },
             });
 
+            // This logic remains correct.
             if (!existingAccount) {
               await tx.user.update({
                 where: { id: userId as string },

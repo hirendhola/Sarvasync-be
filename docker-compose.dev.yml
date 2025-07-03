@@ -1,20 +1,36 @@
 # docker-compose.dev.yml
+
 services:
   api:
     build:
       context: .
-      target: dev # Tells Docker to build the 'dev' stage from the Dockerfile
+      target: dev 
     container_name: sarvasync-api-dev
     ports:
       - "3000:3000"
     env_file:
-      - .env # Loads variables from your .env file
+      - .env
     volumes:
-      - .:/usr/src/app # Mounts your code for live-reloading
-      - /usr/src/app/node_modules # Prevents local node_modules from overwriting container's
+      - .:/usr/src/app 
+      - /usr/src/app/node_modules 
     depends_on:
       - postgres
     networks:
       - bun-network
-    # Overrides the CMD in the Dockerfile to ensure hot-reload is used
     command: bun run --hot src/index.ts
+
+  analytics-worker: 
+    build:
+      context: .
+      target: dev 
+    container_name: sarvasync-analytics-worker-dev
+    env_file:
+      - .env 
+    volumes:
+      - .:/usr/src/app 
+      - /usr/src/app/node_modules
+    depends_on:
+      - postgres 
+    networks:
+      - bun-network 
+    command: bun run --hot src/workers/analytics-sync.ts
